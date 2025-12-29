@@ -19,7 +19,7 @@ const BulkProcessor = ({ token, onScanComplete }) => {
         if (files.length === 0) return;
         setProcessing(true);
         setProgress({ current: 0, total: files.length });
-        const API_URL = import.meta.env.VITE_API_URL || '';
+        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
         const processedResults = [];
 

@@ -13,7 +13,7 @@ const ScanHistory = ({ token }) => {
         if (!token) return;
         setLoading(true);
         setError(null);
-        const API_URL = import.meta.env.VITE_API_URL || '';
+        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
         try {
             const response = await fetch(`${API_URL}/history`, {
                 headers: {

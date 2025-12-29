@@ -12,7 +12,7 @@ function App() {
   const [user, setUser] = useState(localStorage.getItem('user'));
 
   // Dynamic API URL for deployment
-  const API_URL = import.meta.env.VITE_API_URL || '';
+  const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);

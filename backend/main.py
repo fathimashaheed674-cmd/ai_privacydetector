@@ -3,65 +3,19 @@ import re
 import json
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import JWTError, jwt
 import bcrypt
-from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from supabase import create_client, Client
 
-# --- Database Configuration ---
-# Supports Supabase PostgreSQL, or fallback to local SQLite for development
-DATABASE_URL = os.environ.get("DATABASE_URL")
-if DATABASE_URL:
-    # Fix for older postgres:// URLs
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
-    SQLALCHEMY_DATABASE_URL = DATABASE_URL
-else:
-    SQLALCHEMY_DATABASE_URL = "sqlite:///./sentinel.db"
+# --- Supabase Configuration ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://uvhbjitcxbnjvofoargw.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_coxaCf9Jn1_97EU8mTsX7Q_s7bWKw5j")
 
-if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-else:
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# --- Database Models ---
-class UserDB(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True, index=True)
-    username = Column(String(255), unique=True, index=True)
-    email = Column(String(255), unique=True, index=True, nullable=True)
-    hashed_password = Column(String(255))
-    scans = relationship("ScanHistoryDB", back_populates="owner")
-
-class ScanHistoryDB(Base):
-    __tablename__ = "scan_history"
-    id = Column(Integer, primary_key=True, index=True)
-    original_text = Column(Text)
-    redacted_text = Column(Text)
-    detected_pii_json = Column(Text)
-    risk_level = Column(String(50), nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    owner = relationship("UserDB", back_populates="scans")
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-# --- Dependency ---
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # --- FastAPI App ---
 app = FastAPI(title="Sentinel AI API", version="2.0.0")
@@ -72,6 +26,7 @@ ALLOWED_ORIGINS = [
     FRONTEND_URL,
     "http://localhost:5173",
     "http://localhost:3000",
+    "*"  # Allow all for development
 ]
 
 app.add_middleware(
@@ -83,7 +38,7 @@ app.add_middleware(
 )
 
 # --- Security Configuration ---
-SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
+SECRET_KEY = os.environ.get("SECRET_KEY", "sentinel-ai-secret-key-2024")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
@@ -91,18 +46,14 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 # --- Pydantic Models ---
 class User(BaseModel):
+    id: Optional[str] = None
     username: str
     email: Optional[str] = None
-    class Config:
-        from_attributes = True
 
 class Token(BaseModel):
     access_token: str
     token_type: str
     username: str
-
-class TokenData(BaseModel):
-    username: Optional[str] = None
 
 class UserCreate(BaseModel):
     username: str
@@ -149,25 +100,28 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def get_current_user(authorization: str = Header(None)):
     """Validate JWT token and return the authenticated user."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not authorization or not authorization.startswith("Bearer "):
+        raise credentials_exception
+    
+    token = authorization.replace("Bearer ", "")
+    
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
+        user_id: str = payload.get("user_id")
         if username is None:
             raise credentials_exception
+        return {"id": user_id, "username": username}
     except JWTError:
         raise credentials_exception
-    
-    user = db.query(UserDB).filter(UserDB.username == username).first()
-    if user is None:
-        raise credentials_exception
-    return user
 
 # --- Regex Patterns ---
 PATTERNS = {
@@ -216,71 +170,81 @@ def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = Non
 # --- Auth Routes ---
 
 @app.post("/api/register", response_model=Token)
-async def register(user: UserCreate, db: Session = Depends(get_db)):
+async def register(user: UserCreate):
     """Register a new user account."""
-    db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
-    if db_user:
+    # Check if username exists
+    existing = supabase.table("users").select("*").eq("username", user.username).execute()
+    if existing.data:
         raise HTTPException(status_code=400, detail="Username already registered")
     
-    if user.email:
-        db_email = db.query(UserDB).filter(UserDB.email == user.email).first()
-        if db_email:
-            raise HTTPException(status_code=400, detail="Email already registered")
-    
+    # Hash password and create user
     hashed_password = get_password_hash(user.password)
-    new_user = UserDB(username=user.username, email=user.email, hashed_password=hashed_password)
-    db.add(new_user)
-    db.commit()
-    db.refresh(new_user)
+    
+    result = supabase.table("users").insert({
+        "username": user.username,
+        "email": user.email,
+        "hashed_password": hashed_password
+    }).execute()
+    
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+    
+    new_user = result.data[0]
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user.username, "user_id": new_user["id"]},
+        expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer", "username": user.username}
 
 @app.post("/api/token", response_model=Token)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     """Login and receive an access token."""
-    user = db.query(UserDB).filter(UserDB.username == form_data.username).first()
-    if not user or not verify_password(form_data.password, user.hashed_password):
+    result = supabase.table("users").select("*").eq("username", form_data.username).execute()
+    
+    if not result.data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    user = result.data[0]
+    
+    if not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+        )
+    
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user["username"], "user_id": user["id"]},
+        expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer", "username": user.username}
+    return {"access_token": access_token, "token_type": "bearer", "username": user["username"]}
 
-@app.get("/api/users/me", response_model=User)
-async def read_users_me(current_user: UserDB = Depends(get_current_user)):
+@app.get("/api/users/me")
+async def read_users_me(current_user: dict = Depends(get_current_user)):
     """Get current authenticated user info."""
     return current_user
 
 # --- Protected PII Routes ---
 
 @app.post("/api/scan", response_model=PIIResponse)
-async def scan_text(
-    request: PIIRequest,
-    current_user: UserDB = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+async def scan_text(request: PIIRequest, current_user: dict = Depends(get_current_user)):
     """Scan text for PII (requires authentication)."""
     redacted, detected = detect_and_redact(request.text, request.custom_patterns)
     risk_level = calculate_risk(detected)
     
-    scan_history = ScanHistoryDB(
-        original_text=request.text,
-        redacted_text=redacted,
-        detected_pii_json=json.dumps(detected),
-        risk_level=risk_level,
-        user_id=current_user.id
-    )
-    db.add(scan_history)
-    db.commit()
+    # Save to Supabase
+    supabase.table("scan_history").insert({
+        "user_id": current_user["id"],
+        "original_text": request.text,
+        "redacted_text": redacted,
+        "detected_pii_json": json.dumps(detected),
+        "risk_level": risk_level
+    }).execute()
     
     return PIIResponse(
         original_text=request.text,
@@ -290,29 +254,26 @@ async def scan_text(
     )
 
 @app.get("/api/history")
-async def get_history(
-    current_user: UserDB = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
+async def get_history(current_user: dict = Depends(get_current_user)):
     """Get scan history for authenticated user."""
-    history = db.query(ScanHistoryDB).filter(
-        ScanHistoryDB.user_id == current_user.id
-    ).order_by(ScanHistoryDB.timestamp.desc()).all()
+    result = supabase.table("scan_history").select("*").eq(
+        "user_id", current_user["id"]
+    ).order("created_at", desc=True).execute()
     
-    results = []
-    for entry in history:
-        results.append({
-            "id": entry.id,
-            "redacted_text": entry.redacted_text,
-            "detected_pii": json.loads(entry.detected_pii_json),
-            "risk_level": entry.risk_level,
-            "timestamp": entry.timestamp.isoformat() + "Z"
+    history = []
+    for entry in result.data:
+        history.append({
+            "id": entry["id"],
+            "redacted_text": entry["redacted_text"],
+            "detected_pii": json.loads(entry["detected_pii_json"]),
+            "risk_level": entry["risk_level"],
+            "timestamp": entry["created_at"]
         })
-    return results
+    return history
 
 # --- Public Routes ---
 
 @app.get("/api/health")
 def health_check():
     """Public health check endpoint."""
-    return {"status": "healthy", "message": "Sentinel AI API is active."}
+    return {"status": "healthy", "message": "Sentinel AI API is active.", "database": "Supabase"}

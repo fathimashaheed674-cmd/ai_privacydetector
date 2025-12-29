@@ -15,13 +15,22 @@ from sqlalchemy.orm import sessionmaker, Session, relationship
 
 # --- Database Configuration ---
 import os
-# Use /tmp for SQLite if running on Vercel (read-only filesystem)
-if os.environ.get("VERCEL"):
+# Check for persistent database URL (e.g. Postgres on Neon/Supabase)
+# Fallback to ephemeral SQLite in /tmp for Vercel, or local SQLite
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL:
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URL = DATABASE_URL
+elif os.environ.get("VERCEL"):
     SQLALCHEMY_DATABASE_URL = "sqlite:////tmp/sentinel.db"
 else:
     SQLALCHEMY_DATABASE_URL = "sqlite:///./sentinel.db"
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -63,7 +72,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,  # Set to False when using wildcard origins with Bearer tokens
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -282,24 +291,9 @@ async def get_history(current_user: UserDB = Depends(get_current_user), db: Sess
         })
     return results
 
-# --- Static Files & Frontend Serving ---
-import os
-
-# Get the absolute path to the directory where main.py is located
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Navigate up and into frontend/dist
-FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "dist"))
-
 @app.get("/")
 def read_root():
-    index_path = os.path.join(FRONTEND_DIR, "index.html")
-    if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": "PII Detector Backend is Running. Frontend not found.", "path": index_path}
+    return {"message": "Sentinel AI API is active. Access the frontend via the main URL."}
 
-# Mount the static files from React build
-if os.path.exists(FRONTEND_DIR):
-    # We mount /assets specifically to avoid catching /token etc if we were to mount / to /
-    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
-    # For common static files in the root of dist (like favicon.ico, vite.svg)
-    app.mount("/static_root", StaticFiles(directory=FRONTEND_DIR), name="static_root")
+# Note: Static file serving removed for Vercel compatibility. 
+# Replit users should run the frontend separately or use the previous unified commit.

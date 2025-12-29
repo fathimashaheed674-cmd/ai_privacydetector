@@ -5,3 +5,4 @@ pydantic
 python-jose[cryptography]
 bcrypt==4.0.1
 sqlalchemy
+psycopg2-binary

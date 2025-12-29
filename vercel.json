@@ -1,5 +1,31 @@
 {
   "version": 2,
+  "rewrites": [
+    {
+      "source": "/token",
+      "destination": "backend/main.py"
+    },
+    {
+      "source": "/register",
+      "destination": "backend/main.py"
+    },
+    {
+      "source": "/scan",
+      "destination": "backend/main.py"
+    },
+    {
+      "source": "/history",
+      "destination": "backend/main.py"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "backend/main.py"
+    },
+    {
+      "source": "/((?!token|register|scan|history|api).*)",
+      "destination": "/index.html"
+    }
+  ],
   "builds": [
     {
       "src": "frontend/package.json",
@@ -11,37 +37,6 @@
     {
       "src": "backend/main.py",
       "use": "@vercel/python"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/token",
-      "dest": "backend/main.py"
-    },
-    {
-      "src": "/register",
-      "dest": "backend/main.py"
-    },
-    {
-      "src": "/scan",
-      "dest": "backend/main.py"
-    },
-    {
-      "src": "/history",
-      "dest": "backend/main.py"
-    },
-    {
-      "handle": "filesystem"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1",
-      "check": true
-    },
-    {
-      "src": "/(.*)",
-      "status": 200,
-      "dest": "/index.html"
     }
   ]
 }

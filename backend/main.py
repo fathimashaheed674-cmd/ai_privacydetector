@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
 import bcrypt
@@ -110,7 +110,7 @@ class PIIRequest(BaseModel):
 class PIIResponse(BaseModel):
     original_text: str
     redacted_text: str
-    detected_pii: List[Dict[str, str]]
+    detected_pii: List[Dict[str, Any]]
     risk_level: str
 
 # --- Utility Functions ---

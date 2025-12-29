@@ -12,7 +12,7 @@ function App() {
   const token = "guest_token"; // Mock token for compatibility
 
   // Dynamic API URL for deployment
-  const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+  const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : '');
 
   const [inputText, setInputText] = useState('');
 

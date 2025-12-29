@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    },
+    {
+      "src": "backend/main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/token",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/register",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/scan",
+      "dest": "backend/main.py"
+    },
+    {
+      "src": "/history",
+      "dest": "backend/main.py"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1",
+      "check": true
+    },
+    {
+      "src": "/(.*)",
+      "status": 200,
+      "dest": "/frontend/index.html"
+    }
+  ]
+}

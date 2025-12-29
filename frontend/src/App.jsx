@@ -11,7 +11,9 @@ function App() {
   const [token, setToken] = useState(localStorage.getItem('token'));
   const [user, setUser] = useState(localStorage.getItem('user'));
 
-  const [inputText, setInputText] = useState('');
+  // Dynamic API URL for deployment
+  const API_URL = import.meta.env.VITE_API_URL || '';
+
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -74,7 +76,7 @@ function App() {
     setError(null);
     setResult(null);
     try {
-      const response = await fetch('http://localhost:8000/scan', {
+      const response = await fetch(`${API_URL}/scan`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -19,6 +19,7 @@ const BulkProcessor = ({ token, onScanComplete }) => {
         if (files.length === 0) return;
         setProcessing(true);
         setProgress({ current: 0, total: files.length });
+        const API_URL = import.meta.env.VITE_API_URL || '';
 
         const processedResults = [];
 
@@ -35,7 +36,7 @@ const BulkProcessor = ({ token, onScanComplete }) => {
                     throw new Error('Unsupported format in bulk mode');
                 }
 
-                const response = await fetch('http://localhost:8000/scan', {
+                const response = await fetch(`${API_URL}/scan`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

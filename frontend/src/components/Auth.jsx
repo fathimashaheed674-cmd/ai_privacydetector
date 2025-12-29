@@ -15,6 +15,7 @@ const Auth = ({ onLogin }) => {
 
         const endpoint = isLogin ? '/token' : '/register';
         const cleanUsername = username.trim();
+        const API_URL = import.meta.env.VITE_API_URL || '';
 
         try {
             let body;
@@ -30,7 +31,7 @@ const Auth = ({ onLogin }) => {
                 body = JSON.stringify({ username: cleanUsername, password });
             }
 
-            const response = await fetch(`http://localhost:8000${endpoint}`, {
+            const response = await fetch(`${API_URL}${endpoint}`, {
                 method: 'POST',
                 headers: headers,
                 body: body,

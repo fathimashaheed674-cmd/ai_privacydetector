@@ -282,13 +282,24 @@ async def get_history(current_user: UserDB = Depends(get_current_user), db: Sess
         })
     return results
 
+# --- Static Files & Frontend Serving ---
+import os
+
+# Get the absolute path to the directory where main.py is located
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Navigate up and into frontend/dist
+FRONTEND_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "dist"))
+
 @app.get("/")
 def read_root():
-    return FileResponse("../frontend/dist/index.html")
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"message": "PII Detector Backend is Running. Frontend not found.", "path": index_path}
 
 # Mount the static files from React build
-# This allows Replit to show the website and the API on the same link
-import os
-frontend_path = os.path.abspath("../frontend/dist")
-if os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
+if os.path.exists(FRONTEND_DIR):
+    # We mount /assets specifically to avoid catching /token etc if we were to mount / to /
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+    # For common static files in the root of dist (like favicon.ico, vite.svg)
+    app.mount("/static_root", StaticFiles(directory=FRONTEND_DIR), name="static_root")

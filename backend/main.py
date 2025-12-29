@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import re
 from typing import List, Dict, Optional
@@ -282,4 +284,11 @@ async def get_history(current_user: UserDB = Depends(get_current_user), db: Sess
 
 @app.get("/")
 def read_root():
-    return {"message": "PII Detector Backend is Running with Persistence"}
+    return FileResponse("../frontend/dist/index.html")
+
+# Mount the static files from React build
+# This allows Replit to show the website and the API on the same link
+import os
+frontend_path = os.path.abspath("../frontend/dist")
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")

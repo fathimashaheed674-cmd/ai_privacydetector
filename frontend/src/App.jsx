@@ -14,6 +14,8 @@ function App() {
   // Dynamic API URL for deployment
   const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
 
+  const [inputText, setInputText] = useState('');
+
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);

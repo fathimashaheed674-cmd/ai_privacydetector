@@ -502,4 +502,12 @@
     padding: 0.5rem 0.75rem;
     color: #e5e7eb;
     font-family: monospace;
-}.stat-helper { font-size: 0.75rem; color: #64748b; margin: 0.25rem 0 0.75rem 0; font-weight: 500; opacity: 0.8; }
+}
+
+.stat-helper {
+    font-size: 0.75rem;
+    color: #64748b;
+    margin: 0.25rem 0 0.75rem 0;
+    font-weight: 500;
+    opacity: 0.8;
+}

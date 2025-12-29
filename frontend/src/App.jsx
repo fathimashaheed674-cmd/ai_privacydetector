@@ -246,6 +246,10 @@ function App() {
           </nav>
         </div>
         <div className="user-controls">
+          <div className="node-status">
+            <span className="status-dot pulsing"></span>
+            <span className="status-label">API NODE: ONLINE</span>
+          </div>
           <div className="user-info">
             <span className="user-badge guest">PUBLIC ACCESS</span>
             <span className="user-name">{user}</span>

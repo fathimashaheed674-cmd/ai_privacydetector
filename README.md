@@ -40,7 +40,7 @@ Your historical command center for privacy compliance.
 ```bash
 cd backend
 pip install -r requirements.txt
-python -m uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --reload --port 5000
 ```
 
 ### 2. Synchronize Frontend Interface

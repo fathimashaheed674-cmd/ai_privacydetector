@@ -1,12 +1,14 @@
+import os
+import re
+import json
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Any
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import re
-from typing import List, Dict, Optional, Any
-from datetime import datetime, timedelta
 from jose import JWTError, jwt
 import bcrypt
 from sqlalchemy import create_engine, Column, Integer, String, Text, DateTime, ForeignKey
@@ -14,7 +16,6 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 
 # --- Database Configuration ---
-import os
 # Check for persistent database URL (e.g. Postgres on Neon/Supabase)
 # Fallback to ephemeral SQLite in /tmp for Vercel, or local SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -250,7 +251,6 @@ async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
     risk_level = calculate_risk(detected)
     
     # Save scan history
-    import json
     scan_history = ScanHistoryDB(
         original_text=request.text,
         redacted_text=redacted,
@@ -273,7 +273,6 @@ async def get_history(db: Session = Depends(get_db)):
     current_user = await get_current_user(db=db)
     history = db.query(ScanHistoryDB).filter(ScanHistoryDB.user_id == current_user.id).order_by(ScanHistoryDB.timestamp.desc()).all()
     results = []
-    import json
     for entry in history:
         results.append({
             "id": entry.id,

@@ -39,8 +39,7 @@ const BulkProcessor = ({ token, onScanComplete }) => {
                 const response = await fetch(`${API_URL}/scan`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}`
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ text }),
                 });

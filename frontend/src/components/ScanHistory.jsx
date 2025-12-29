@@ -10,14 +10,13 @@ const ScanHistory = ({ token }) => {
     const [selectedItem, setSelectedItem] = useState(null);
 
     const fetchHistory = useCallback(async () => {
-        if (!token) return;
         setLoading(true);
         setError(null);
         const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
         try {
             const response = await fetch(`${API_URL}/history`, {
                 headers: {
-                    'Authorization': `Bearer ${token}`
+                    'Content-Type': 'application/json'
                 }
             });
             if (!response.ok) {

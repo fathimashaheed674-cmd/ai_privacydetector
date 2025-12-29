@@ -8,8 +8,8 @@ import BulkProcessor from './components/BulkProcessor';
 import './App.css';
 
 function App() {
-  const [token, setToken] = useState(localStorage.getItem('token'));
-  const [user, setUser] = useState(localStorage.getItem('user'));
+  const [user, setUser] = useState("Guest");
+  const token = "guest_token"; // Mock token for compatibility
 
   // Dynamic API URL for deployment
   const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
@@ -65,10 +65,7 @@ function App() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
-    setUser(null);
+    // Legacy logout function, now just resets state
     setResult(null);
     setInputText('');
   };
@@ -81,8 +78,7 @@ function App() {
       const response = await fetch(`${API_URL}/scan`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
           text: inputText,
@@ -91,8 +87,7 @@ function App() {
       });
 
       if (response.status === 401) {
-        handleLogout();
-        throw new Error('Session expired. Please login again.');
+        throw new Error('Unauthorized access.');
       }
 
       if (!response.ok) {
@@ -219,9 +214,7 @@ function App() {
     }
   };
 
-  if (!token) {
-    return <Auth onLogin={handleLogin} />;
-  }
+  // Authentication check removed for Guest-only mode
 
   return (
     <div className="container">
@@ -254,10 +247,9 @@ function App() {
         </div>
         <div className="user-controls">
           <div className="user-info">
-            <span className="user-badge">SECURE SESSION</span>
+            <span className="user-badge guest">PUBLIC ACCESS</span>
             <span className="user-name">{user}</span>
           </div>
-          <button onClick={handleLogout} className="logout-btn">Logout</button>
         </div>
       </header>
 

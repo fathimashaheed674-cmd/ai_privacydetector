@@ -143,24 +143,15 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError:
-        raise credentials_exception
-    
-    user = db.query(UserDB).filter(UserDB.username == username).first()
-    if user is None:
-        raise credentials_exception
+async def get_current_user(token: Optional[str] = None, db: Session = Depends(get_db)):
+    # Legacy function kept for compatibility, returns a guest user
+    user = db.query(UserDB).filter(UserDB.username == "guest").first()
+    if not user:
+        hashed_password = get_password_hash("guest_pass")
+        user = UserDB(username="guest", hashed_password=hashed_password)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
     return user
 
 # --- Regex Patterns ---
@@ -253,7 +244,8 @@ async def read_users_me(current_user: UserDB = Depends(get_current_user)):
     return current_user
 
 @app.post("/scan", response_model=PIIResponse)
-async def scan_text(request: PIIRequest, current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
+    current_user = await get_current_user(db=db)
     redacted, detected = detect_and_redact(request.text, request.custom_patterns)
     risk_level = calculate_risk(detected)
     
@@ -277,7 +269,8 @@ async def scan_text(request: PIIRequest, current_user: UserDB = Depends(get_curr
     )
 
 @app.get("/history")
-async def get_history(current_user: UserDB = Depends(get_current_user), db: Session = Depends(get_db)):
+async def get_history(db: Session = Depends(get_db)):
+    current_user = await get_current_user(db=db)
     history = db.query(ScanHistoryDB).filter(ScanHistoryDB.user_id == current_user.id).order_by(ScanHistoryDB.timestamp.desc()).all()
     results = []
     import json

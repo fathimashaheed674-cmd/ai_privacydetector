@@ -15,7 +15,7 @@ const Auth = ({ onLogin }) => {
 
         const endpoint = isLogin ? '/token' : '/register';
         const cleanUsername = username.trim();
-        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '');
+        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '/api');
 
         try {
             let body;

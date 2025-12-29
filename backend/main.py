@@ -83,7 +83,7 @@ SECRET_KEY = "supersecretkey_change_me_in_prod"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 # --- Pydantic Models ---
 class User(BaseModel):
@@ -207,7 +207,7 @@ def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = Non
 
 # --- Routes ---
 
-@app.post("/register", response_model=Token)
+@app.post("/api/register", response_model=Token)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
     if db_user:
@@ -225,7 +225,7 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.post("/token", response_model=Token)
+@app.post("/api/token", response_model=Token)
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(UserDB).filter(UserDB.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
@@ -240,11 +240,11 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@app.get("/users/me", response_model=User)
+@app.get("/api/users/me", response_model=User)
 async def read_users_me(current_user: UserDB = Depends(get_current_user)):
     return current_user
 
-@app.post("/scan", response_model=PIIResponse)
+@app.post("/api/scan", response_model=PIIResponse)
 async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
     current_user = await get_current_user(db=db)
     redacted, detected = detect_and_redact(request.text, request.custom_patterns)
@@ -268,7 +268,7 @@ async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
         risk_level=risk_level
     )
 
-@app.get("/history")
+@app.get("/api/history")
 async def get_history(db: Session = Depends(get_db)):
     current_user = await get_current_user(db=db)
     history = db.query(ScanHistoryDB).filter(ScanHistoryDB.user_id == current_user.id).order_by(ScanHistoryDB.timestamp.desc()).all()
@@ -288,9 +288,10 @@ def read_root():
     return {"message": "Sentinel AI API is active."}
 
 # --- Replit/Unified Deployment: Serve Frontend Static Files ---
+# On Vercel, we let Vercel handle static files directly via vercel.json for better performance.
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
-if os.path.exists(frontend_path):
+if not os.environ.get("VERCEL") and os.path.exists(frontend_path):
     app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
 
     @app.get("/{full_path:path}")
@@ -304,9 +305,9 @@ if os.path.exists(frontend_path):
             return FileResponse(index_file)
         return {"error": "Frontend build not found. Run 'npm run build' in the frontend directory."}
 else:
-    @app.get("/")
-    def root_no_frontend():
-        return {"message": "API Active. Frontend build not detected in /frontend/dist"}
+    @app.get("/api/status")
+    def root_status():
+        return {"message": "API Active.", "vercel": bool(os.environ.get("VERCEL"))}
 
 # Note: Static file serving removed for Vercel compatibility. 
 # Replit users should run the frontend separately or use the previous unified commit.

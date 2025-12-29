@@ -291,9 +291,30 @@ async def get_history(current_user: UserDB = Depends(get_current_user), db: Sess
         })
     return results
 
-@app.get("/")
+@app.get("/api/health")
 def read_root():
-    return {"message": "Sentinel AI API is active. Access the frontend via the main URL."}
+    return {"message": "Sentinel AI API is active."}
+
+# --- Replit/Unified Deployment: Serve Frontend Static Files ---
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
+
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Prevent intercepting API routes
+        if full_path.startswith(("token", "register", "scan", "history", "api")):
+            raise HTTPException(status_code=404)
+        
+        index_file = os.path.join(frontend_path, "index.html")
+        if os.path.exists(index_file):
+            return FileResponse(index_file)
+        return {"error": "Frontend build not found. Run 'npm run build' in the frontend directory."}
+else:
+    @app.get("/")
+    def root_no_frontend():
+        return {"message": "API Active. Frontend build not detected in /frontend/dist"}
 
 # Note: Static file serving removed for Vercel compatibility. 
 # Replit users should run the frontend separately or use the previous unified commit.

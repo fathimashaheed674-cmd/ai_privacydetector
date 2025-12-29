@@ -6,8 +6,6 @@ from typing import List, Dict, Optional, Any
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from jose import JWTError, jwt
 import bcrypt
@@ -16,15 +14,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
 
 # --- Database Configuration ---
-# Check for persistent database URL (e.g. Postgres on Neon/Supabase)
-# Fallback to ephemeral SQLite in /tmp for Vercel, or local SQLite
+# Supports Supabase PostgreSQL, or fallback to local SQLite for development
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if DATABASE_URL:
+    # Fix for older postgres:// URLs
     if DATABASE_URL.startswith("postgres://"):
         DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
     SQLALCHEMY_DATABASE_URL = DATABASE_URL
-elif os.environ.get("VERCEL"):
-    SQLALCHEMY_DATABASE_URL = "sqlite:////tmp/sentinel.db"
 else:
     SQLALCHEMY_DATABASE_URL = "sqlite:///./sentinel.db"
 
@@ -32,6 +28,7 @@ if SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
     engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 else:
     engine = create_engine(SQLALCHEMY_DATABASE_URL)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -39,9 +36,9 @@ Base = declarative_base()
 class UserDB(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
-    username = Column(String, unique=True, index=True)
-    email = Column(String, unique=True, index=True, nullable=True)
-    hashed_password = Column(String)
+    username = Column(String(255), unique=True, index=True)
+    email = Column(String(255), unique=True, index=True, nullable=True)
+    hashed_password = Column(String(255))
     scans = relationship("ScanHistoryDB", back_populates="owner")
 
 class ScanHistoryDB(Base):
@@ -49,8 +46,8 @@ class ScanHistoryDB(Base):
     id = Column(Integer, primary_key=True, index=True)
     original_text = Column(Text)
     redacted_text = Column(Text)
-    detected_pii_json = Column(Text) # Storing as JSON string
-    risk_level = Column(String, nullable=True)
+    detected_pii_json = Column(Text)
+    risk_level = Column(String(50), nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     user_id = Column(Integer, ForeignKey("users.id"))
     owner = relationship("UserDB", back_populates="scans")
@@ -67,21 +64,28 @@ def get_db():
         db.close()
 
 # --- FastAPI App ---
-app = FastAPI()
+app = FastAPI(title="Sentinel AI API", version="2.0.0")
 
-# Enable CORS
+# --- CORS Configuration ---
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+ALLOWED_ORIGINS = [
+    FRONTEND_URL,
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,  # Set to False when using wildcard origins with Bearer tokens
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # --- Security Configuration ---
-SECRET_KEY = "supersecretkey_change_me_in_prod"
+SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/token")
 
@@ -95,6 +99,7 @@ class User(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+    username: str
 
 class TokenData(BaseModel):
     username: Optional[str] = None
@@ -144,15 +149,24 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
-async def get_current_user(token: Optional[str] = None, db: Session = Depends(get_db)):
-    # Legacy function kept for compatibility, returns a guest user
-    user = db.query(UserDB).filter(UserDB.username == "guest").first()
-    if not user:
-        hashed_password = get_password_hash("guest_pass")
-        user = UserDB(username="guest", hashed_password=hashed_password)
-        db.add(user)
-        db.commit()
-        db.refresh(user)
+async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    """Validate JWT token and return the authenticated user."""
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    
+    user = db.query(UserDB).filter(UserDB.username == username).first()
+    if user is None:
+        raise credentials_exception
     return user
 
 # --- Regex Patterns ---
@@ -173,12 +187,10 @@ PATTERNS = {
 def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = None):
     detected = []
     
-    # 1. Merge default and custom patterns
     all_patterns = PATTERNS.copy()
     if custom_patterns:
         all_patterns.update(custom_patterns)
         
-    # 1. Collect all matches
     for pii_type, pattern in all_patterns.items():
         try:
             matches = re.finditer(pattern, text)
@@ -191,12 +203,8 @@ def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = Non
                     "end": match.end()
                 })
         except re.error:
-            continue # Skip invalid regex
+            continue
     
-    # Sort detected by start position to handle overrides correctly if desired, 
-    # but the character list method already handles overlapping ranges.
-    
-    # 2. Mask the text using a character list to handle overlaps correctly
     text_list = list(text)
     for item in detected:
         for i in range(item['start'], item['end']):
@@ -205,13 +213,19 @@ def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = Non
     redacted_text = "".join(text_list)
     return redacted_text, detected
 
-# --- Routes ---
+# --- Auth Routes ---
 
 @app.post("/api/register", response_model=Token)
 async def register(user: UserCreate, db: Session = Depends(get_db)):
+    """Register a new user account."""
     db_user = db.query(UserDB).filter(UserDB.username == user.username).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Username already registered")
+    
+    if user.email:
+        db_email = db.query(UserDB).filter(UserDB.email == user.email).first()
+        if db_email:
+            raise HTTPException(status_code=400, detail="Email already registered")
     
     hashed_password = get_password_hash(user.password)
     new_user = UserDB(username=user.username, email=user.email, hashed_password=hashed_password)
@@ -223,10 +237,11 @@ async def register(user: UserCreate, db: Session = Depends(get_db)):
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "username": user.username}
 
 @app.post("/api/token", response_model=Token)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """Login and receive an access token."""
     user = db.query(UserDB).filter(UserDB.username == form_data.username).first()
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
@@ -238,19 +253,25 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"access_token": access_token, "token_type": "bearer", "username": user.username}
 
 @app.get("/api/users/me", response_model=User)
 async def read_users_me(current_user: UserDB = Depends(get_current_user)):
+    """Get current authenticated user info."""
     return current_user
 
+# --- Protected PII Routes ---
+
 @app.post("/api/scan", response_model=PIIResponse)
-async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
-    current_user = await get_current_user(db=db)
+async def scan_text(
+    request: PIIRequest,
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Scan text for PII (requires authentication)."""
     redacted, detected = detect_and_redact(request.text, request.custom_patterns)
     risk_level = calculate_risk(detected)
     
-    # Save scan history
     scan_history = ScanHistoryDB(
         original_text=request.text,
         redacted_text=redacted,
@@ -269,9 +290,15 @@ async def scan_text(request: PIIRequest, db: Session = Depends(get_db)):
     )
 
 @app.get("/api/history")
-async def get_history(db: Session = Depends(get_db)):
-    current_user = await get_current_user(db=db)
-    history = db.query(ScanHistoryDB).filter(ScanHistoryDB.user_id == current_user.id).order_by(ScanHistoryDB.timestamp.desc()).all()
+async def get_history(
+    current_user: UserDB = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get scan history for authenticated user."""
+    history = db.query(ScanHistoryDB).filter(
+        ScanHistoryDB.user_id == current_user.id
+    ).order_by(ScanHistoryDB.timestamp.desc()).all()
+    
     results = []
     for entry in history:
         results.append({
@@ -283,31 +310,9 @@ async def get_history(db: Session = Depends(get_db)):
         })
     return results
 
+# --- Public Routes ---
+
 @app.get("/api/health")
-def read_root():
-    return {"message": "Sentinel AI API is active."}
-
-# --- Replit/Unified Deployment: Serve Frontend Static Files ---
-# On Vercel, we let Vercel handle static files directly via vercel.json for better performance.
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-
-if not os.environ.get("VERCEL") and os.path.exists(frontend_path):
-    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="static")
-
-    @app.get("/{full_path:path}")
-    async def serve_frontend(full_path: str):
-        # Prevent intercepting API routes
-        if full_path.startswith(("token", "register", "scan", "history", "api")):
-            raise HTTPException(status_code=404)
-        
-        index_file = os.path.join(frontend_path, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        return {"error": "Frontend build not found. Run 'npm run build' in the frontend directory."}
-else:
-    @app.get("/api/status")
-    def root_status():
-        return {"message": "API Active.", "vercel": bool(os.environ.get("VERCEL"))}
-
-# Note: Static file serving removed for Vercel compatibility. 
-# Replit users should run the frontend separately or use the previous unified commit.
+def health_check():
+    """Public health check endpoint."""
+    return {"status": "healthy", "message": "Sentinel AI API is active."}

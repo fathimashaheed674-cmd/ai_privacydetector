@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import './Auth.css';
 
-const Auth = ({ onLogin }) => {
+const Auth = ({ onLogin, onBack }) => {
     const [isLogin, setIsLogin] = useState(true);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -15,14 +15,13 @@ const Auth = ({ onLogin }) => {
 
         const endpoint = isLogin ? '/token' : '/register';
         const cleanUsername = username.trim();
-        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '/api');
+        const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api');
 
         try {
             let body;
             let headers = { 'Content-Type': 'application/json' };
 
             if (isLogin) {
-                // OAuth2PasswordRequestForm expects form-data
                 body = new URLSearchParams();
                 body.append('username', cleanUsername);
                 body.append('password', password);
@@ -43,8 +42,7 @@ const Auth = ({ onLogin }) => {
                 throw new Error(data.detail || 'Authentication failed');
             }
 
-            // On success, we get an access_token
-            onLogin(data.access_token, cleanUsername);
+            onLogin(data.access_token, data.username || cleanUsername);
 
         } catch (err) {
             setError(err.message);
@@ -62,6 +60,12 @@ const Auth = ({ onLogin }) => {
             </div>
 
             <div className="auth-card">
+                {onBack && (
+                    <button className="back-btn" onClick={onBack}>
+                        ← Back to Home
+                    </button>
+                )}
+
                 <div className="auth-brand">
                     <span className="brand-icon">🛡️</span>
                     <h1>Sentinel <span className="highlight">AI</span></h1>

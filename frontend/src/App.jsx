@@ -1,21 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import Tesseract from 'tesseract.js';
 import RiskSummary from './components/RiskSummary';
 import Auth from './components/Auth';
+import LandingPage from './components/LandingPage';
 import ScanHistory from './components/ScanHistory';
 import CustomPatternModal from './components/CustomPatternModal';
 import BulkProcessor from './components/BulkProcessor';
 import './App.css';
 
 function App() {
-  const [user, setUser] = useState("Guest");
-  const token = "guest_token"; // Mock token for compatibility
+  const [token, setToken] = useState(localStorage.getItem('token') || null);
+  const [user, setUser] = useState(localStorage.getItem('user') || null);
+  const [showAuth, setShowAuth] = useState(false);
 
   // Dynamic API URL for deployment
-  const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '/api');
+  const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api');
 
   const [inputText, setInputText] = useState('');
-
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -27,7 +28,7 @@ function App() {
   const [isPatternModalOpen, setIsPatternModalOpen] = useState(false);
   const [ocrWorker, setOcrWorker] = useState(null);
 
-  // Initialize OCR Worker on mount for performance optimization
+  // Initialize OCR Worker on mount
   useEffect(() => {
     let worker;
     const initWorker = async () => {
@@ -39,9 +40,7 @@ function App() {
     initWorker();
 
     return () => {
-      if (worker) {
-        worker.terminate();
-      }
+      if (worker) worker.terminate();
     };
   }, []);
 
@@ -62,10 +61,14 @@ function App() {
     localStorage.setItem('user', username);
     setToken(accessToken);
     setUser(username);
+    setShowAuth(false);
   };
 
   const handleLogout = () => {
-    // Legacy logout function, now just resets state
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
     setResult(null);
     setInputText('');
   };
@@ -78,7 +81,8 @@ function App() {
       const response = await fetch(`${API_URL}/scan`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
           text: inputText,
@@ -87,7 +91,8 @@ function App() {
       });
 
       if (response.status === 401) {
-        throw new Error('Unauthorized access.');
+        handleLogout();
+        throw new Error('Session expired. Please log in again.');
       }
 
       if (!response.ok) {
@@ -99,9 +104,9 @@ function App() {
       setHistoryKey(prev => prev + 1);
 
       if (data.detected_pii.length > 0) {
-        sendNotification("PII Detected", `Sentinel found ${data.detected_pii.length} sensitive vectors in your stream.`);
+        sendNotification("PII Detected", `Sentinel found ${data.detected_pii.length} sensitive vectors.`);
       } else {
-        sendNotification("Scan Complete", "No high-risk entities detected in this stream.");
+        sendNotification("Scan Complete", "No high-risk entities detected.");
       }
     } catch (err) {
       setError(err.message);
@@ -130,34 +135,32 @@ function App() {
 
     if (file.type.startsWith('image/')) {
       setError(null);
-      setOcrProgress('Warming up Neural Engine...');
+      setOcrProgress('Initializing Neural OCR...');
       try {
         if (!ocrWorker) {
-          throw new Error('Neural OCR Engine is initializing. Please wait a moment.');
+          throw new Error('OCR Engine is initializing. Please wait.');
         }
 
         const { data: { text } } = await ocrWorker.recognize(file, {}, {
           logger: m => {
             if (m.status === 'recognizing text') {
-              setOcrProgress(`Neural Scan: ${Math.round(m.progress * 100)}%`);
+              setOcrProgress(`Scanning: ${Math.round(m.progress * 100)}%`);
             }
           }
         });
 
         setInputText(text);
         setOcrProgress(null);
-        sendNotification("OCR Complete", "Metadata successfully extracted from image.");
+        sendNotification("OCR Complete", "Text extracted from image.");
       } catch (err) {
-        setError("Neural Scan Failed: " + err.message);
+        setError("OCR Failed: " + err.message);
         setOcrProgress(null);
       }
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = (e) => {
-      setInputText(e.target.result);
-    };
+    reader.onload = (e) => setInputText(e.target.result);
     reader.readAsText(file);
   };
 
@@ -174,9 +177,7 @@ function App() {
   };
 
   const handleDownloadText = () => {
-    if (result) {
-      downloadFile(result.redacted_text, 'redacted_output.txt', 'text/plain');
-    }
+    if (result) downloadFile(result.redacted_text, 'redacted_output.txt', 'text/plain');
   };
 
   const handleDownloadReport = () => {
@@ -184,22 +185,18 @@ function App() {
       const report = {
         timestamp: new Date().toISOString(),
         scan_summary: result.detected_pii,
-        risk_score: 100 - (result.detected_pii.length * 5),
+        risk_level: result.risk_level,
         total_pii: result.detected_pii.length
       };
-      downloadFile(JSON.stringify(report, null, 2), 'pii_risk_report.json', 'application/json');
+      downloadFile(JSON.stringify(report, null, 2), 'pii_report.json', 'application/json');
     }
   };
 
   const handleSaveDraft = () => {
     if (!inputText) return;
-    const draft = {
-      text: inputText,
-      result: result,
-      timestamp: new Date().toISOString()
-    };
+    const draft = { text: inputText, result, timestamp: new Date().toISOString() };
     localStorage.setItem(`sentinel_draft_${user}`, JSON.stringify(draft));
-    sendNotification("Draft Saved", "Vault session state successfully cached.");
+    sendNotification("Draft Saved", "Session state cached.");
   };
 
   const handleLoadDraft = () => {
@@ -208,14 +205,23 @@ function App() {
       const { text, result: savedResult } = JSON.parse(savedDraft);
       setInputText(text);
       setResult(savedResult);
-      sendNotification("Draft Loaded", "Previous vault session successfully restored.");
+      sendNotification("Draft Loaded", "Previous session restored.");
     } else {
-      setError("No saved drafts found for this user.");
+      setError("No saved drafts found.");
     }
   };
 
-  // Authentication check removed for Guest-only mode
+  // Show landing page if not logged in and not showing auth
+  if (!token && !showAuth) {
+    return <LandingPage onGetStarted={() => setShowAuth(true)} />;
+  }
 
+  // Show auth form if user clicked "Get Started"
+  if (!token && showAuth) {
+    return <Auth onLogin={handleLogin} onBack={() => setShowAuth(false)} />;
+  }
+
+  // Main dashboard (authenticated)
   return (
     <div className="container">
       <header className="header">
@@ -251,8 +257,9 @@ function App() {
             <span className="status-label">API NODE: ONLINE</span>
           </div>
           <div className="user-info">
-            <span className="user-badge guest">PUBLIC ACCESS</span>
+            <span className="user-badge authenticated">AUTHENTICATED</span>
             <span className="user-name">{user}</span>
+            <button className="logout-btn" onClick={handleLogout}>Logout</button>
           </div>
         </div>
       </header>
@@ -263,23 +270,17 @@ function App() {
             <section className="input-section">
               <div className="section-header">
                 <h3><span className="icon">📡</span> Data Input Stream</h3>
-                <p className="section-helper">Paste text, logs, or code below to automatically detect and hide sensitive information.</p>
+                <p className="section-helper">Paste text, logs, or code to detect and hide sensitive information.</p>
                 <div className="header-actions-inline">
-                  <button className="text-action-btn secondary" title="Save your current work to finish later" onClick={handleSaveDraft}>
-                    💾 Save Draft
-                  </button>
-                  <button className="text-action-btn secondary" title="Restore your last saved work" onClick={handleLoadDraft}>
-                    📂 Load Draft
-                  </button>
-                  <button className="text-action-btn secondary" title="Define your own custom PII detection rules" onClick={() => setIsPatternModalOpen(true)}>
-                    🛠️ Custom Rules
-                  </button>
+                  <button className="text-action-btn secondary" onClick={handleSaveDraft}>💾 Save Draft</button>
+                  <button className="text-action-btn secondary" onClick={handleLoadDraft}>📂 Load Draft</button>
+                  <button className="text-action-btn secondary" onClick={() => setIsPatternModalOpen(true)}>🛠️ Custom Rules</button>
                   <button className="text-action-btn" onClick={handleClear}>Clear All</button>
                 </div>
               </div>
               <textarea
                 className="text-input"
-                placeholder="Synchronize data stream... (Paste anything from emails to credit card numbers here)"
+                placeholder="Paste anything from emails to credit card numbers here..."
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 rows={10}
@@ -309,19 +310,12 @@ function App() {
                 <div className="report-header">
                   <h3>Analysis Result</h3>
                   <div className="report-actions">
-                    <button className="download-btn secondary" onClick={handleDownloadReport}>
-                      📊 Export Audit
-                    </button>
-                    <button className="download-btn primary" onClick={handleDownloadText}>
-                      💾 Save Redacted
-                    </button>
+                    <button className="download-btn secondary" onClick={handleDownloadReport}>📊 Export Audit</button>
+                    <button className="download-btn primary" onClick={handleDownloadText}>💾 Save Redacted</button>
                   </div>
                 </div>
 
-                <RiskSummary
-                  detectedEntities={result.detected_pii}
-                  riskLevel={result.risk_level}
-                />
+                <RiskSummary detectedEntities={result.detected_pii} riskLevel={result.risk_level} />
 
                 <div className="results-grid">
                   <div className="result-card">
@@ -339,7 +333,7 @@ function App() {
                     {result.detected_pii.length === 0 ? (
                       <div className="no-results">
                         <span className="no-icon">✅</span>
-                        <p>No high-risk entities detected in this stream.</p>
+                        <p>No high-risk entities detected.</p>
                       </div>
                     ) : (
                       <ul className="stats-list">
@@ -357,15 +351,12 @@ function App() {
             )}
           </div>
         ) : activeTab === 'bulk' ? (
-          <BulkProcessor
-            token={token}
-            onScanComplete={() => setHistoryKey(prev => prev + 1)}
-          />
+          <BulkProcessor token={token} onScanComplete={() => setHistoryKey(prev => prev + 1)} />
         ) : (
           <div className="radar-view animate-fade-in">
             <div className="view-header">
               <h2>Identity Radar</h2>
-              <p>Global analysis of your historical PII detection cycles.</p>
+              <p>Historical analysis of your PII detection cycles.</p>
             </div>
             <ScanHistory key={historyKey} token={token} />
           </div>
@@ -373,15 +364,13 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        <p>&copy;  Sentinel AI Security Systems | End-to-End Encrypted Data Processing</p>
+        <p>&copy; 2024 Sentinel AI Security Systems | End-to-End Encrypted</p>
       </footer>
 
       <CustomPatternModal
         isOpen={isPatternModalOpen}
         onClose={() => setIsPatternModalOpen(false)}
-        onAdd={(name, regex) => {
-          setCustomPatterns(prev => ({ ...prev, [name]: regex }));
-        }}
+        onAdd={(name, regex) => setCustomPatterns(prev => ({ ...prev, [name]: regex }))}
         patterns={customPatterns}
       />
     </div>

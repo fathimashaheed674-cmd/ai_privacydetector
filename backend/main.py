@@ -125,18 +125,30 @@ async def get_current_user(authorization: str = Header(None)):
 
 # --- Regex Patterns ---
 PATTERNS = {
+    # Indian PII
     "AADHAAR": r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b",
     "PAN": r"\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b",
-    "PASSPORT": r"\b[A-Z]{1}[0-9]{7}\b",
-    "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-    "PHONE": r"\b(\+91[\-\s]?)?[6789]\d{9}\b",
     "VOTER_ID": r"\b[A-Z]{3}[0-9]{7}\b",
     "GSTIN": r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}\b",
-    "ATM_PIN": r"\b\d{4,6}\b",
-    "CREDIT_CARD": r"\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b",
-    "CVV": r"\b\d{3}\b",
+    
+    # International PII
+    "PASSPORT": r"\b[A-Z]{1}[0-9]{7}\b",
+    "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
+    "PHONE_IN": r"\b(\+91[\-\s]?)?[6789]\d{9}\b",
+    "PHONE_US": r"\b\+?1?[\s\-]?\(?\d{3}\)?[\s\-]?\d{3}[\s\-]?\d{4}\b",
+    
+    # Financial
+    "CREDIT_CARD": r"\b(?:4[0-9]{3}|5[1-5][0-9]{2}|6(?:011|5[0-9]{2}))[0-9\s\-]{10,14}\b",
+    "IBAN": r"\b[A-Z]{2}\d{2}[\s]?[A-Z0-9]{4,30}\b",
+    
+    # Digital
+    "IP_ADDRESS": r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+    "MAC_ADDRESS": r"\b([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b",
+    
+    # Dates
     "DOB": r"\b\d{2}[\-/\.]\d{2}[\-/\.]\d{4}\b"
 }
+
 
 def detect_and_redact(text: str, custom_patterns: Optional[Dict[str, str]] = None):
     detected = []

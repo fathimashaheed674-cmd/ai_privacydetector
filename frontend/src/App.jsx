@@ -28,21 +28,27 @@ function App() {
   const [isPatternModalOpen, setIsPatternModalOpen] = useState(false);
   const [ocrWorker, setOcrWorker] = useState(null);
 
-  // Initialize OCR Worker on mount
+  // Initialize OCR Worker on mount (with error handling)
   useEffect(() => {
     let worker;
     const initWorker = async () => {
-      worker = await Tesseract.createWorker();
-      await worker.loadLanguage('eng');
-      await worker.initialize('eng');
-      setOcrWorker(worker);
+      try {
+        worker = await Tesseract.createWorker('eng');
+        setOcrWorker(worker);
+      } catch (err) {
+        console.warn('OCR initialization failed:', err);
+        // OCR is optional, app continues without it
+      }
     };
     initWorker();
 
     return () => {
-      if (worker) worker.terminate();
+      if (worker) {
+        try { worker.terminate(); } catch (e) { }
+      }
     };
   }, []);
+
 
   useEffect(() => {
     if ("Notification" in window && Notification.permission === "default") {

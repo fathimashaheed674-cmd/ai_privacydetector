@@ -37,7 +37,7 @@ Your historical command center for privacy compliance.
 ## ⚙️ Deployment Protocol
 
 ### 1. Initialize Backend Intelligence
-```bash execute tasks directly. Use for simple tasks that can be comp
+```bash
 cd backend
 pip install -r requirements.txt
 python -m uvicorn main:app --reload --port 5000

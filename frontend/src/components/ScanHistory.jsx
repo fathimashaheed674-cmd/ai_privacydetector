@@ -13,10 +13,12 @@ const ScanHistory = ({ token }) => {
         setLoading(true);
         setError(null);
         const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api');
+        const authToken = token || localStorage.getItem('token');
         try {
             const response = await fetch(`${API_URL}/history`, {
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${authToken}`
                 }
             });
             if (!response.ok) {
@@ -32,6 +34,7 @@ const ScanHistory = ({ token }) => {
             setLoading(false);
         }
     }, [token]);
+
 
     useEffect(() => {
         fetchHistory();

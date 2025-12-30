@@ -39,10 +39,12 @@ const BulkProcessor = ({ token, onScanComplete }) => {
                 const response = await fetch(`${API_URL}/scan`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token || localStorage.getItem('token')}`
                     },
                     body: JSON.stringify({ text }),
                 });
+
 
                 if (!response.ok) throw new Error('Network error');
 
